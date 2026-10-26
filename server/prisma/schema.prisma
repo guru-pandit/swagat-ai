@@ -1,0 +1,230 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  RECEPTIONIST
+  EMPLOYEE
+  KIOSK
+}
+
+enum VisitStatus {
+  EXPECTED
+  CHECKED_IN
+  CHECKED_OUT
+  OVERSTAY
+  NO_SHOW
+}
+
+enum PackageStatus {
+  PENDING
+  NOTIFIED
+  PICKED_UP
+  REFUNDED
+  LOST
+}
+
+enum NotifChannel {
+  EMAIL
+  SMS
+  PUSH
+  SOCKET
+}
+
+enum NotifStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  displayName  String
+  phone        String?
+  avatar       String?
+  isActive     Boolean
+  createdAt    DateTime @default(now())
+
+  hostedVisits  Visitor[]      @relation("HostedVisits")
+  appointments  Appointment[]
+  roomBookings  RoomBooking[]
+  package       Package[]      @relation("PackageRecipient")
+  notifications Notification[]
+
+  @@index([role])
+}
+
+model Visitor {
+  id          String   @id @default(cuid())
+  fullName    String
+  email       String?
+  phone       String?
+  company     String?
+  photoUrl    String?
+  hostId      String
+  host        User     @relation("HostedVisits", fields: [hostId], references: [id])
+  preregToken String?  @unique
+  createdAt   DateTime @default(now())
+
+  visits       VisitLog[]
+  appointments Appointment[]
+  ndaSigned    NdaSignature?
+  watchListHit Boolean       @default(false)
+
+  @@index([hostId])
+  @@index([email])
+}
+
+model VisitLog {
+  id            String      @id @default(cuid())
+  visitorId     String
+  visitor       Visitor     @relation(fields: [visitorId], references: [id])
+  status        VisitStatus @default(EXPECTED)
+  checkedInAt   DateTime?
+  checkedOutAt  DateTime?
+  badgeCode     String?     @unique
+  notes         String?
+  checkedInById String? // null - kiosk self-check-in
+
+  @@index([visitorId])
+  @@index([checkedInAt])
+  @@index([status])
+}
+
+model Appointment {
+  id           String   @id @default(cuid())
+  title        String
+  startsAt     DateTime
+  endsAt       DateTime
+  visitorId    String
+  visitor      Visitor  @relation(fields: [visitorId], references: [id])
+  hostId       String
+  host         User     @relation(fields: [hostId], references: [id])
+  roomId       String?
+  room         Room?     @relation(fields: [roomId], references: [id])
+  notes        String?
+  reminderSent Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([hostId, startsAt])
+  @@index([roomId, startsAt])
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  floor     Int
+  capacity  Int
+  amenities String[] // ['tv', 'whiteboard']
+  isActive  Boolean
+  photoUrl  String?
+
+  bookings     RoomBooking[]
+  appointments Appointment[]
+}
+
+model RoomBooking {
+  id             String   @id @default(cuid())
+  roomId         String
+  room           Room     @relation(fields: [roomId], references: [id])
+  bookedByUserId String
+  bookedBy       User     @relation(fields: [bookedByUserId], references: [id])
+  startsAt       DateTime
+  endsAt         DateTime
+  title          String?
+  released       Boolean  @default(false)
+
+  @@index([roomId, startsAt])
+}
+
+model Package {
+  id          String        @id @default(cuid())
+  carrier     String
+  trackingNo  String?
+  description String?
+  recipientId String
+  recipient   User          @relation("PackageRecipient", fields: [recipientId], references: [id])
+  status      PackageStatus @default(PENDING)
+  arrivedAt   DateTime      @default(now())
+  pickedUpAt  DateTime?
+  pickedUpSig String? // base64 signature image
+  notes       String?
+  loggedById  String
+
+  @@index([recipientId, status])
+  @@index([arrivedAt])
+}
+
+model NdaSignature {
+  id              String   @id @default(cuid())
+  visitorId       String   @unique
+  visitor         Visitor  @relation(fields: [visitorId], references: [id])
+  signedAt        DateTime @default(now())
+  documentVersion String
+  ipAddress       String?
+  signature       String // base64 drawn signature
+}
+
+model WatchList {
+  id        String   @id @default(cuid())
+  fullName  String
+  idNumber  String?
+  company   String?
+  reason    String
+  addedById String
+  addedAt   DateTime @default(now())
+  isActive  Boolean  @default(true)
+
+  @@index([fullName])
+}
+
+model Notification {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  channel   NotifChannel
+  subject   String?
+  body      String
+  Status    NotifStatus  @default(QUEUED)
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime     @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model EmergencyContact {
+  id    String @id @default(cuid())
+  name  String
+  phone String
+  role  String // 'Fire Warden', 'First Aid', 'Security'
+  floor Int?
+  order Int    @default(0)
+}
+
+model KnowledgeBase {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  category  String?
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
